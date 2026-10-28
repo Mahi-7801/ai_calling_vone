@@ -1,0 +1,12 @@
+# Secrets - .env holds live API keys (ngrok authtoken, Twilio, Razorpay,
+# SMTP passwords). Never commit it.
+.env
+.env.*
+!.env.example
+
+# Tunnel binaries (~88MB, fetched per-machine, not source)
+bin/
+
+node_modules/
+scratch/
+*.log

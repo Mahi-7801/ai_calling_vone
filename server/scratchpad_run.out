@@ -1,0 +1,99 @@
+  ok  users
+  ok  organizations
+  ok  organization_members
+  ok  ai_employees
+  ok  employee_versions
+  ok  employee_knowledge
+  ok  employee_documents
+  ok  employee_faqs
+  ok  employee_scripts
+  ok  employee_examples
+  ok  phone_numbers
+  ok  leads
+  ok  lead_contacts
+  ok  campaigns
+  ok  campaign_leads
+  ok  calls
+  ok  call_events
+  ok  call_transcripts
+  ok  call_recordings
+  ok  call_outcomes
+  ok  credit_wallets
+  ok  credit_transactions
+  ok  subscriptions
+  ok  payments
+  ok  webhooks
+  ok  webhook_deliveries
+  ok  api_keys
+  ok  audit_logs
+  ok  notifications
+  ok  settings
+  ok  refresh_tokens
+  ok  password_reset_tokens
+  ok  verification_tokens
+  ok  admin_settings
+  ok  voice_clones
+  ok  phone_number_purchases
+  ok  calls.blood_group (exists)
+  ok  calls.carrier_hangup_reason (exists)
+  ok  calls.carrier_call_uuid (exists)
+  ok  phone_numbers.region (exists)
+  ok  phone_numbers.is_trial (exists)
+  ok  phone_numbers normalized (2 scanned, 0 duplicate row(s) removed)
+Migration complete for database "ai_calling_platform"
+  ok  users
+  ok  organizations
+  ok  organization_members
+  ok  ai_employees
+  ok  employee_versions
+  ok  employee_knowledge
+  ok  employee_documents
+  ok  employee_faqs
+  ok  employee_scripts
+  ok  employee_examples
+  ok  phone_numbers
+  ok  leads
+  ok  lead_contacts
+  ok  campaigns
+  ok  campaign_leads
+  ok  calls
+  ok  call_events
+  ok  call_transcripts
+  ok  call_recordings
+  ok  call_outcomes
+  ok  credit_wallets
+  ok  credit_transactions
+  ok  subscriptions
+  ok  payments
+  ok  webhooks
+  ok  webhook_deliveries
+  ok  api_keys
+  ok  audit_logs
+  ok  notifications
+  ok  settings
+  ok  refresh_tokens
+  ok  password_reset_tokens
+  ok  verification_tokens
+  ok  admin_settings
+  ok  voice_clones
+  ok  phone_number_purchases
+  ok  calls.blood_group (exists)
+  ok  calls.carrier_hangup_reason (exists)
+  ok  calls.carrier_call_uuid (exists)
+  ok  phone_numbers.region (exists)
+  ok  phone_numbers.is_trial (exists)
+  ok  phone_numbers normalized (2 scanned, 0 duplicate row(s) removed)
+Migration complete for database "ai_calling_platform"
+Database already has active organizations. Skipping mock data.
+[scheduler] Campaign scheduler loop initialized (interval: 30s)
+
+==============================================
+  Telugu AI Calling SaaS — Server
+  http://localhost:5000
+  MOCK_MODE=false
+  Database: root@localhost:3306/ai_calling_platform
+  Demo login: demo@aicalling.local / demo1234
+==============================================
+[tunnel] Launching ngrok tunnel for port 5000 ...
+[tunnel] >>> PUBLIC TUNNEL ACTIVE (ngrok): https://jerry-reservable-feelinglessly.ngrok-free.dev
+  Live Telephony Webhook: https://jerry-reservable-feelinglessly.ngrok-free.dev/api/telephony/webhook

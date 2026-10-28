@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: vone-ai-calling-server
+    runtime: node
+    plan: starter
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TUNNEL_MODE
+        value: "off"
+      - key: ALLOW_LOCAL_ANSWER_URL
+        value: "false"
+      - key: PORT
+        value: "10000"
+      - key: JWT_EXPIRES_IN
+        value: "7d"

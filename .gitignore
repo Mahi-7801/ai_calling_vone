@@ -1,0 +1,54 @@
+# Environment variables & secrets (NEVER commit these)
+.env
+.env.*
+!.env.example
+*.env
+server/.env
+server/.env.*
+web/.env
+web/.env.*
+
+# Dependencies
+node_modules/
+server/node_modules/
+web/node_modules/
+
+# Production build artifacts
+dist/
+web/dist/
+build/
+
+# Tunnel binaries & executables
+bin/
+server/bin/
+*.exe
+
+# Large media files and test audio
+*.mp3
+*.mpeg
+*.wav
+*.ogg
+*.pdf
+
+# Logs and scratch files
+0
+*.log
+scratch/
+server/scratch/
+scratchpad_*.js
+.system_generated/
+
+# AI agent caches
+.insforge
+.agent
+.agents
+.augment
+.claude
+.cline
+.github/copilot*
+.kilocode
+.qoder
+.qwen
+.roo
+.trae
+.windsurf

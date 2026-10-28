@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "cartesia-api": {
+      "source": "cartesia-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/cartesia-api/SKILL.md",
+      "computedHash": "9049e70bde2c565b473dab582d63e4dce74e218e5721890eef7bbcd2450ff216"
+    },
+    "cartesia-line": {
+      "source": "cartesia-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/cartesia-line/SKILL.md",
+      "computedHash": "f171a2a664e77d6330ead663bfe0737c78573fe245b9aaf37f982bdf8d4151d0"
+    }
+  }
+}

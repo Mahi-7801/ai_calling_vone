@@ -1,0 +1,11 @@
+/openapi.json 200 {"openapi":"3.1.0","info":{"title":"Outpero API","description":"Place calls, rea
+/swagger.json 404 {"error":{"type":"invalid_request_error","code":"resource_not_found","message":"
+/swagger 404 {"error":{"type":"invalid_request_error","code":"resource_not_found","message":"
+/redoc 404 {"error":{"type":"invalid_request_error","code":"resource_not_found","message":"
+/docs 404 {"error":{"type":"invalid_request_error","code":"resource_not_found","message":"
+/api-docs 404 {"error":{"type":"invalid_request_error","code":"resource_not_found","message":"
+/health 404 {"error":{"type":"invalid_request_error","code":"resource_not_found","message":"
+/me 200 {"object":"api_key_context","account":{"id":"ca4ae4e2-8fc5-4084-9ed7-c55b0cacd8a
+/balance 200 {"object":"balance","available_credits":34.4,"held_credits":0.0,"currency":"INR"
+/employees 200 {"object":"list","has_more":false,"next_starting_after":null,"data":[{"object":"
+/employees/f7e88bff-1872-4b4a-93af-4bba9f77558d 200 {"object":"employee","id":"f7e88bff-1872-4b4a-93af-4bba9f77558d","name":"Imran",

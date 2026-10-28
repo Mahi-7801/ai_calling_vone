@@ -1,0 +1,1108 @@
+{
+  "name": "Telugu AI Calling — Vobiz + LiveKit + Groq + Cartesia",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 📞 Telugu AI Calling — n8n orchestrator\n**Vobiz (SIP) ⇄ LiveKit ⇄ Groq (STT + LLM) ⇄ Cartesia Sonic-3 (Telugu TTS)**\n\nn8n *places and tracks* calls. The live voice conversation runs in the LiveKit agent worker (`agent.py`) — n8n cannot stream audio.\n\n### Setup (5 min)\n1. Edit the `CONFIG` block at the top of the 3 Code nodes: **Prepare Call**, **Prepare Report**, **Prepare Clone**\n2. Self-hosted n8n: set env `NODE_FUNCTION_ALLOW_BUILTIN=crypto` (needed to sign the LiveKit JWT)\n3. Run `agent.py` with the same `AGENT_NAME` and your n8n *call-ended* URL\n4. Activate this workflow, then use the production URLs\n\n### Endpoints (all need header `x-webhook-secret`)\n- `POST /webhook/telugu-call-start` → place a call\n- `POST /webhook/telugu-call-ended` → agent posts transcript here\n- `POST /webhook/telugu-voice-clone` → clone a voice (multipart)",
+        "height": 330,
+        "width": 760,
+        "color": 7
+      },
+      "id": "8f0e50fd-4fe4-4788-83ec-283328ceb211",
+      "name": "Note · Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -752,
+        -272
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### A · Place a call\nbody: `{ \"phone\": \"9876543210\", \"name\": \"Ravi\", \"purpose\": \"...\", \"first_message\": \"(optional Telugu opener)\", \"voice_id\": \"(optional Cartesia id)\", \"variables\": {} }`",
+        "height": 120,
+        "width": 760,
+        "color": 5
+      },
+      "id": "3cefb3a6-64af-423e-9386-5834023c3a02",
+      "name": "Note · Flow A",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -752,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### B · Call finished → Groq analysis → your backend\nAgent posts the transcript here when the call ends. Groq returns summary / outcome / follow-up, then it is forwarded to `RESULT_WEBHOOK_URL` (optional).",
+        "height": 110,
+        "width": 760,
+        "color": 6
+      },
+      "id": "d8c88fa3-a36a-4f0c-be0e-63d48adb1a85",
+      "name": "Note · Flow B",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -752,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### C · Clone a voice with Cartesia\nmultipart: file field `clip` (mp3/wav/ogg/webm, ~10–30 s clean speech) + `name` (+ optional `language`, `description`). Returns `voice_id` to use in Flow A / `CARTESIA_VOICE_ID`.",
+        "height": 110,
+        "width": 760,
+        "color": 3
+      },
+      "id": "9e4c36b2-7a2c-427c-bdb1-694a7d2feb85",
+      "name": "Note · Flow C",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -752,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telugu-call-start",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "bb9f70f8-9a19-40e2-a16d-da477c7ee958",
+      "name": "Webhook · Start Call",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        160
+      ],
+      "webhookId": "c4f24f71-ccac-42f1-99ee-920b4b9d0200"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ================= EDIT THIS CONFIG =================\nconst CONFIG = {\n  LIVEKIT_URL: 'wss://aicalling-72j0sh1j.livekit.cloud',\n  LIVEKIT_API_KEY: 'APIisp9fBx9gVd6',\n  LIVEKIT_API_SECRET: 'DtkfIBY9IF50TX0M26vq8fF7lfoLvhltgtnjDlePmXAA',\n  LIVEKIT_SIP_TRUNK_ID: 'ST_3k7G4MrWazTG', // LiveKit outbound trunk pointing at Vobiz (lk sip outbound list)\n  AGENT_NAME: 'telugu-caller',             // must match AGENT_NAME in agent.py\n  WEBHOOK_SECRET: 'change-this-secret',    // callers must send it as header x-webhook-secret\n  DEFAULT_VOICE_ID: 'YOUR_CARTESIA_VOICE_ID',\n  DEFAULT_COUNTRY_CODE: '91',\n  MAX_CALL_SECONDS: 300,\n  RESULT_WEBHOOK_URL: '',                  // optional: your backend URL for call.connected / call.failed events\n};\n// =====================================================\n\nconst item = $input.first().json;\nconst headers = item.headers || {};\nconst body = item.body || {};\nconst reject = (status, error) => [{ json: { valid: false, http_status: status, error } }];\n\nif ((headers['x-webhook-secret'] || '') !== CONFIG.WEBHOOK_SECRET) return reject(401, 'unauthorized');\n\n// ---- phone number -> E.164\nlet raw = String(body.phone || body.to || '').replace(/[\\s\\-().]/g, '');\nif (raw.startsWith('00')) raw = '+' + raw.slice(2);\nlet phone = raw;\nif (!raw.startsWith('+')) {\n  if (/^\\d{10}$/.test(raw)) phone = '+' + CONFIG.DEFAULT_COUNTRY_CODE + raw;\n  else if (/^0\\d{10}$/.test(raw)) phone = '+' + CONFIG.DEFAULT_COUNTRY_CODE + raw.slice(1);\n  else if (/^91\\d{10}$/.test(raw)) phone = '+' + raw;\n  else return reject(400, 'invalid phone number');\n}\nconst valid = phone.startsWith('+91') ? /^\\+91[6-9]\\d{9}$/.test(phone) : /^\\+[1-9]\\d{7,14}$/.test(phone);\nif (!valid) return reject(400, 'invalid phone number');\n\nlet crypto;\ntry {\n  crypto = require('crypto');\n} catch (e) {\n  return reject(500, 'crypto not allowed: set NODE_FUNCTION_ALLOW_BUILTIN=crypto on your n8n instance');\n}\n\nconst callId = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);\nconst roomName = 'call-' + callId;\n\n// metadata that the LiveKit agent receives\nconst meta = {\n  call_id: callId,\n  phone,\n  name: body.name || '',\n  language: body.language || 'te',\n  purpose: body.purpose || '',\n  system_prompt: body.system_prompt || '',\n  first_message: body.first_message || '',\n  voice_id: body.voice_id || CONFIG.DEFAULT_VOICE_ID,\n  variables: body.variables || {},\n  max_duration_sec: Number(body.max_duration_sec) || CONFIG.MAX_CALL_SECONDS,\n};\n\n// ---- LiveKit access token (HS256 JWT) with room + SIP grants\nconst b64u = (x) => Buffer.from(typeof x === 'string' ? x : JSON.stringify(x)).toString('base64url');\nconst now = Math.floor(Date.now() / 1000);\nconst head = b64u({ alg: 'HS256', typ: 'JWT' });\nconst claims = b64u({\n  iss: CONFIG.LIVEKIT_API_KEY,\n  sub: 'n8n-dialer',\n  nbf: now - 5,\n  exp: now + 600,\n  video: { roomCreate: true, roomAdmin: true, room: roomName },\n  sip: { admin: true, call: true },\n});\nconst sig = crypto.createHmac('sha256', CONFIG.LIVEKIT_API_SECRET).update(head + '.' + claims).digest('base64url');\n\nreturn [{\n  json: {\n    valid: true,\n    call_id: callId,\n    room_name: roomName,\n    phone,\n    name: meta.name,\n    http_url: CONFIG.LIVEKIT_URL.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:').replace(/\\/+$/, ''),\n    token: head + '.' + claims + '.' + sig,\n    trunk_id: CONFIG.LIVEKIT_SIP_TRUNK_ID,\n    agent_name: CONFIG.AGENT_NAME,\n    dispatch_metadata: JSON.stringify(meta),\n    notify_url: CONFIG.RESULT_WEBHOOK_URL,\n    notify_secret: CONFIG.WEBHOOK_SECRET,\n  },\n}];"
+      },
+      "id": "ad950f50-eefb-4bec-bf02-fbcf9e9e4ff0",
+      "name": "Prepare Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1469eb8b-9172-4949-a4ed-67d1832f200f",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "07ae21cb-310b-43b3-a9f0-da6c28701f2a",
+      "name": "IF · Valid Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -208,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'queued', call_id: $json.call_id, room: $json.room_name, phone: $json.phone } }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "87a15b6b-b789-46c9-8a4b-8dd2617f5880",
+      "name": "Respond · Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Prepare Call').first().json.http_url }}/twirp/livekit.RoomService/CreateRoom",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Prepare Call').first().json.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $('Prepare Call').first().json.room_name, empty_timeout: 120, max_participants: 4, metadata: $('Prepare Call').first().json.dispatch_metadata }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "325556a2-05fd-464e-9fc7-b253d7416d45",
+      "name": "LiveKit · Create Room",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        288,
+        64
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Prepare Call').first().json.http_url }}/twirp/livekit.AgentDispatchService/CreateDispatch",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Prepare Call').first().json.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_name: $('Prepare Call').first().json.agent_name, room: $('Prepare Call').first().json.room_name, metadata: $('Prepare Call').first().json.dispatch_metadata }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "429d1362-fa63-4b1e-a5e6-9452e499427e",
+      "name": "LiveKit · Dispatch Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        528,
+        64
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Prepare Call').first().json.http_url }}/twirp/livekit.SIP/CreateSIPParticipant",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Prepare Call').first().json.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ sip_trunk_id: $('Prepare Call').first().json.trunk_id, sip_call_to: $('Prepare Call').first().json.phone, room_name: $('Prepare Call').first().json.room_name, participant_identity: 'sip-' + $('Prepare Call').first().json.call_id, participant_name: $('Prepare Call').first().json.name || $('Prepare Call').first().json.phone, krisp_enabled: true, wait_until_answered: true }) }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "602e5eda-ad1d-4fd6-a69f-4038050f6a7d",
+      "name": "LiveKit · Dial via Vobiz SIP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        -304
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Prepare Call').first().json;\nconst r = $input.first().json || {};\nreturn [{\n  json: {\n    event: 'call.connected',\n    call_id: p.call_id,\n    phone: p.phone,\n    name: p.name,\n    room: p.room_name,\n    sip_call_id: r.sipCallId || r.sip_call_id || null,\n    at: new Date().toISOString(),\n    notify_url: p.notify_url,\n    notify_secret: p.notify_secret,\n  },\n}];"
+      },
+      "id": "85993192-4570-4e78-879e-8b9fdde48fc1",
+      "name": "Format · Connected",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c52a4d16-8544-4824-823e-60ee05ab0b4a",
+              "leftValue": "={{ $json.notify_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ed982ea5-837f-42ba-aac7-c5b961deee2b",
+      "name": "IF · Notify Backend?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1280,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Prepare Call').first().json;\nconst e = $input.first().json || {};\nconst reason = (e.error && (e.error.message || e.error.description)) || e.message || JSON.stringify(e).slice(0, 400);\nreturn [{\n  json: {\n    event: 'call.failed',\n    call_id: p.call_id,\n    phone: p.phone,\n    name: p.name,\n    room: p.room_name,\n    reason: String(reason),\n    at: new Date().toISOString(),\n    notify_url: p.notify_url,\n    notify_secret: p.notify_secret,\n  },\n}];"
+      },
+      "id": "086bf1f2-4cf3-40b1-b9ab-211b1148a7c0",
+      "name": "Format · Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.notify_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $json.notify_secret }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ event: $json.event, call_id: $json.call_id, phone: $json.phone, name: $json.name, room: $json.room, reason: $json.reason, sip_call_id: $json.sip_call_id, at: $json.at }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "3f7f2706-6bbc-41a5-9c30-9c6d87cffcaa",
+      "name": "HTTP · Notify Backend (status)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        -48
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Prepare Call').first().json.http_url }}/twirp/livekit.RoomService/DeleteRoom",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Prepare Call').first().json.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ room: $('Prepare Call').first().json.room_name }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "6d01a23d-0419-428f-a9bc-f1c7cd0ffab3",
+      "name": "LiveKit · Cleanup Room",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1024,
+        336
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'rejected', error: $json.error } }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "6db001b5-fffc-4cc4-ac8f-9763d1446da5",
+      "name": "Respond · Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telugu-call-ended",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "865212ee-f2be-46d8-b802-6bf70eef5db6",
+      "name": "Webhook · Call Ended",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        656
+      ],
+      "webhookId": "597c5e81-8c5e-4b46-9921-4897a4f3c8c0"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ================= EDIT THIS CONFIG =================\nconst CONFIG = {\n  WEBHOOK_SECRET: 'change-this-secret',   // same as the agent's N8N_WEBHOOK_SECRET\n  GROQ_API_KEY: 'YOUR_GROQ_API_KEY',\n  GROQ_MODEL: 'llama-3.3-70b-versatile',\n  RESULT_WEBHOOK_URL: '',                 // optional: your backend / CRM endpoint for final results\n};\n// =====================================================\n\nconst item = $input.first().json;\nconst headers = item.headers || {};\nconst b = item.body || {};\n\nif ((headers['x-webhook-secret'] || '') !== CONFIG.WEBHOOK_SECRET) {\n  return [{ json: { authorized: false } }];\n}\n\nconst transcript = Array.isArray(b.transcript) ? b.transcript : [];\nconst transcriptText = transcript.map((t) => (t.role === 'assistant' ? 'AI' : 'Customer') + ': ' + t.text).join('\\n');\nconst hasUserSpeech = transcript.some((t) => t.role === 'user');\n\nconst system =\n  'You analyse phone-call transcripts (Telugu, sometimes mixed with English or Hindi). ' +\n  'Return ONLY valid JSON with keys: ' +\n  'summary (2-3 sentences, English), ' +\n  'outcome (one of: interested, not_interested, callback_requested, no_response, wrong_number, other), ' +\n  'sentiment (positive | neutral | negative), ' +\n  'follow_up_required (boolean), ' +\n  'follow_up_when (string, empty if none), ' +\n  'key_points (array of short English strings), ' +\n  'customer_questions (array of strings).';\nconst user =\n  'Call purpose: ' + ((b.metadata && b.metadata.purpose) || 'n/a') + '\\n' +\n  'Customer name: ' + (b.name || 'n/a') + '\\n\\nTranscript:\\n' + transcriptText;\n\nreturn [{\n  json: {\n    authorized: true,\n    has_transcript: hasUserSpeech,\n    call_id: b.call_id || '',\n    phone: b.phone || '',\n    name: b.name || '',\n    duration_sec: b.duration_sec || 0,\n    end_reason: b.end_reason || '',\n    transcript,\n    transcript_text: transcriptText,\n    groq_key: CONFIG.GROQ_API_KEY,\n    groq_body: JSON.stringify({\n      model: CONFIG.GROQ_MODEL,\n      temperature: 0.2,\n      response_format: { type: 'json_object' },\n      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],\n    }),\n    notify_url: CONFIG.RESULT_WEBHOOK_URL,\n    notify_secret: CONFIG.WEBHOOK_SECRET,\n  },\n}];"
+      },
+      "id": "82911a14-80eb-4c93-8808-572cce6ab552",
+      "name": "Prepare Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7c9468f0-133c-4141-990c-4cf891fa96f4",
+              "leftValue": "={{ $json.authorized }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "54fb8c33-406c-47ea-b3c8-db511e52f14d",
+      "name": "IF · Authorized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -208,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'received' } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "e4995652-64ac-4dd8-a928-af030c37e54c",
+      "name": "Respond · OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a08d4962-0b0f-4d81-adb1-5b2d5fd89bb6",
+              "leftValue": "={{ $json.has_transcript }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ff5e4c86-b48d-4911-a47f-17ecc0d1cf2f",
+      "name": "IF · Has Customer Speech?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        288,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.groq_key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.groq_body }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "136018f3-8645-4dfb-a268-67551ca91e30",
+      "name": "Groq · Analyze Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        528,
+        496
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Prepare Report').first().json;\nconst g = $input.first().json || {};\n\nlet analysis = {\n  summary: '',\n  outcome: base.has_transcript ? 'other' : 'no_response',\n  sentiment: 'neutral',\n  follow_up_required: false,\n  follow_up_when: '',\n  key_points: [],\n  customer_questions: [],\n};\ntry {\n  const content = g.choices && g.choices[0] && g.choices[0].message && g.choices[0].message.content;\n  if (content) analysis = Object.assign(analysis, JSON.parse(content));\n} catch (e) {\n  analysis.summary = 'Analysis failed: ' + e.message;\n}\n\nreturn [{\n  json: {\n    event: 'call.completed',\n    call_id: base.call_id,\n    phone: base.phone,\n    name: base.name,\n    duration_sec: base.duration_sec,\n    end_reason: base.end_reason,\n    ended_at: new Date().toISOString(),\n    analysis,\n    transcript: base.transcript,\n    transcript_text: base.transcript_text,\n    notify_url: base.notify_url,\n    notify_secret: base.notify_secret,\n  },\n}];"
+      },
+      "id": "bc9b63e7-3033-4454-8bd7-2d133cb05cc4",
+      "name": "Build Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "abbed538-38aa-499f-b30b-9fbd750aa36f",
+              "leftValue": "={{ $json.notify_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fa007b71-c2ce-4819-ba86-656b39441288",
+      "name": "IF · Backend URL Set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1008,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.notify_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $json.notify_secret }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ event: $json.event, call_id: $json.call_id, phone: $json.phone, name: $json.name, duration_sec: $json.duration_sec, end_reason: $json.end_reason, ended_at: $json.ended_at, analysis: $json.analysis, transcript: $json.transcript }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "25268dde-5667-4033-9797-6e2143c7bb40",
+      "name": "HTTP · Send Result to Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1248,
+        496
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'unauthorized' } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "6ff40f11-8f6f-447c-908b-943a4512a9ab",
+      "name": "Respond · Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telugu-voice-clone",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d223b63d-4516-419c-9c21-4d570bb7fa8f",
+      "name": "Webhook · Clone Voice",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        1168
+      ],
+      "webhookId": "0c160698-3e9e-498a-975e-2d71555e2e50"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ================= EDIT THIS CONFIG =================\nconst CONFIG = {\n  WEBHOOK_SECRET: 'change-this-secret',\n  CARTESIA_API_KEY: 'YOUR_CARTESIA_API_KEY',\n  CARTESIA_VERSION: '2026-03-01',   // Cartesia-Version header (if Telugu is rejected, try another listed version)\n  DEFAULT_LANGUAGE: 'te',\n};\n// =====================================================\n\nconst item = $input.first();\nconst headers = item.json.headers || {};\nconst body = item.json.body || {};\nconst reject = (status, error) => [{ json: { valid: false, http_status: status, error } }];\n\nif ((headers['x-webhook-secret'] || '') !== CONFIG.WEBHOOK_SECRET) return reject(401, 'unauthorized');\n\nconst bin = item.binary || {};\nconst key = bin.clip ? 'clip' : Object.keys(bin)[0];\nif (!key) return reject(400, 'attach the audio as multipart field \"clip\" (mp3/wav/ogg/webm, 10-30s of clean speech)');\nif (!body.name) return reject(400, 'name is required');\n\nreturn [{\n  json: {\n    valid: true,\n    voice_name: String(body.name).slice(0, 80),\n    description: body.description || 'Telugu voice',\n    language: body.language || CONFIG.DEFAULT_LANGUAGE,\n    cartesia_key: CONFIG.CARTESIA_API_KEY,\n    cartesia_version: CONFIG.CARTESIA_VERSION,\n  },\n  binary: { clip: bin[key] },\n}];"
+      },
+      "id": "61a94295-725e-4441-827b-bf026ddb93f1",
+      "name": "Prepare Clone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        1168
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3181ff0e-653d-4508-83ef-0a965fe2c56b",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "42d4590e-1507-419c-9044-d29f0f3cac4e",
+      "name": "IF · Valid Clone Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -208,
+        1168
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.cartesia.ai/voices/clone",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $json.cartesia_key }}"
+            },
+            {
+              "name": "Cartesia-Version",
+              "value": "={{ $json.cartesia_version }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "clip",
+              "inputDataFieldName": "clip"
+            },
+            {
+              "name": "name",
+              "value": "={{ $json.voice_name }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $json.description }}"
+            },
+            {
+              "name": "language",
+              "value": "={{ $json.language }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "ef44c812-d0c4-4aed-9c08-eb4630395b04",
+      "name": "Cartesia · Clone Voice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        48,
+        1088
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'ok', voice_id: $json.id, name: $json.name, language: $json.language } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "97278088-d8ac-4880-8ad4-94bf4126e8ca",
+      "name": "Respond · Voice Created",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        288,
+        1024
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'error', error: ($json.error && $json.error.message) || 'voice clone failed' } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "8ec60a86-595b-4739-8796-be7aaec736f6",
+      "name": "Respond · Clone Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        288,
+        1168
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'rejected', error: $json.error } }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "4a32c137-5e4c-4047-aa00-8ad6573b7a18",
+      "name": "Respond · Clone Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        1280
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook · Start Call": {
+      "main": [
+        [
+          {
+            "node": "Prepare Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Call": {
+      "main": [
+        [
+          {
+            "node": "IF · Valid Request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF · Valid Request?": {
+      "main": [
+        [
+          {
+            "node": "Respond · Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond · Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond · Accepted": {
+      "main": [
+        [
+          {
+            "node": "LiveKit · Create Room",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LiveKit · Create Room": {
+      "main": [
+        [
+          {
+            "node": "LiveKit · Dispatch Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format · Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LiveKit · Dispatch Agent": {
+      "main": [
+        [
+          {
+            "node": "LiveKit · Dial via Vobiz SIP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format · Failed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "LiveKit · Cleanup Room",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LiveKit · Dial via Vobiz SIP": {
+      "main": [
+        [
+          {
+            "node": "Format · Connected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format · Failed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "LiveKit · Cleanup Room",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format · Connected": {
+      "main": [
+        [
+          {
+            "node": "IF · Notify Backend?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF · Notify Backend?": {
+      "main": [
+        [
+          {
+            "node": "HTTP · Notify Backend (status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format · Failed": {
+      "main": [
+        [
+          {
+            "node": "IF · Notify Backend?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook · Call Ended": {
+      "main": [
+        [
+          {
+            "node": "Prepare Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Report": {
+      "main": [
+        [
+          {
+            "node": "IF · Authorized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF · Authorized?": {
+      "main": [
+        [
+          {
+            "node": "Respond · OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond · Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond · OK": {
+      "main": [
+        [
+          {
+            "node": "IF · Has Customer Speech?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF · Has Customer Speech?": {
+      "main": [
+        [
+          {
+            "node": "Groq · Analyze Call",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq · Analyze Call": {
+      "main": [
+        [
+          {
+            "node": "Build Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Result": {
+      "main": [
+        [
+          {
+            "node": "IF · Backend URL Set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF · Backend URL Set?": {
+      "main": [
+        [
+          {
+            "node": "HTTP · Send Result to Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook · Clone Voice": {
+      "main": [
+        [
+          {
+            "node": "Prepare Clone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Clone": {
+      "main": [
+        [
+          {
+            "node": "IF · Valid Clone Request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF · Valid Clone Request?": {
+      "main": [
+        [
+          {
+            "node": "Cartesia · Clone Voice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond · Clone Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cartesia · Clone Voice": {
+      "main": [
+        [
+          {
+            "node": "Respond · Voice Created",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond · Clone Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "77153c37-45d4-4e7a-9070-afad9a8a3c14",
+  "meta": {
+    "instanceId": "f679291d07d0c991b3f801e77e797660a77d30c7225e333e581f00e556e5ffc2"
+  },
+  "nodeGroups": [],
+  "id": "4FDXnoHrezsHAwis",
+  "tags": []
+}
